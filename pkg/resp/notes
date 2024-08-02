@@ -1,0 +1,10 @@
+
+Marshalling:
+
+input: any
+output: string
+
+Unmarshalling:
+
+input: string
+output: ...any
