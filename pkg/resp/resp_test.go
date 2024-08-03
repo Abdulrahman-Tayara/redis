@@ -126,6 +126,21 @@ func TestMarshal_MarshalArray(t *testing.T) {
 	}
 }
 
+func TestMarshal_MarshalNull(t *testing.T) {
+	tests := []marshalTest[any]{
+		{
+			"Valid null",
+			nil,
+			"_\r\n",
+			nil,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, marshalTestRunner(&test))
+	}
+}
+
 type marshalTest[T any] struct {
 	name        string
 	input       T

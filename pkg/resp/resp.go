@@ -3,6 +3,7 @@ package resp
 import (
 	"errors"
 	"fmt"
+	"redis/pkg/utils"
 	"reflect"
 	"strings"
 )
@@ -19,60 +20,74 @@ const (
 	errorSuffix       = "-"
 	intSuffix         = ":"
 	arraySuffix       = "*"
+	nullSuffix        = "_"
+	boolSuffix        = "#"
 )
 
+type marshaller interface {
+	isValid(v any) bool
+	marshal(input *marshalInput) (string, error)
+}
+
+type marshalInput struct {
+	value             any
+	indirectValueFunc func() any
+}
+
+var marshallers = []marshaller{
+	&stringMarshaller{},
+	&errorMarshaller{},
+	&intMarshaller{},
+	&booleanMarshaller{},
+	&arrayMarshaller{},
+	&nullMarshaller{},
+}
+
 func Marshal(v any) (string, error) {
-	var res string
-	var err error
-
-	indirectValue := func() any {
-		return reflect.Indirect(reflect.ValueOf(v)).Interface()
+	input := &marshalInput{
+		value: v,
+		indirectValueFunc: func() any {
+			return reflect.Indirect(reflect.ValueOf(v)).Interface()
+		},
 	}
 
-	kind := reflect.TypeOf(v).Kind()
-
-	if kind == reflect.Slice || kind == reflect.Array {
-		return marshalArray(indirectValue())
+	for _, m := range marshallers {
+		if m.isValid(v) {
+			return m.marshal(input)
+		}
 	}
 
+	return "", fmt.Errorf("unsupported type: %T", v)
+}
+
+type stringMarshaller struct{}
+
+func (m *stringMarshaller) isValid(v any) bool {
 	switch v.(type) {
 	case string:
-		res, err = marshalString(indirectValue())
-		break
-	case error:
-		res, err = marshalError(v)
-		break
-	case int, int8, int16, int32, int64:
-		res, err = marshalInt(indirectValue())
-		break
+		return true
 	default:
-		return "", errors.New("unknown type")
+		return false
 	}
-
-	if err != nil {
-		return "", err
-	}
-
-	return res, nil
 }
 
-func marshalString(v any) (string, error) {
-	vStr := v.(string)
+func (m *stringMarshaller) marshal(input *marshalInput) (string, error) {
+	vStr := input.value.(string)
 
 	if strings.Contains(vStr, CR) || strings.Contains(vStr, LF) {
-		return marshalBulkStrings(vStr)
+		return m.marshalBulkStrings(vStr)
 	}
 
-	return marshalSimpleString(vStr)
+	return m.marshalSimpleString(vStr)
 }
 
-func marshalBulkStrings(v string) (string, error) {
+func (m *stringMarshaller) marshalBulkStrings(v string) (string, error) {
 	bytesLen := len(v)
 
 	return fmt.Sprintf("%s%d%s%s%s", bulkStringsSuffix, bytesLen, CRLF, v, CRLF), nil
 }
 
-func marshalSimpleString(v string) (string, error) {
+func (m *stringMarshaller) marshalSimpleString(v string) (string, error) {
 	if strings.Contains(v, CR) {
 		return "", errors.New("simple string mustn't contain \\r")
 	}
@@ -83,21 +98,60 @@ func marshalSimpleString(v string) (string, error) {
 	return fmt.Sprintf("%s%s%s", stringSuffix, v, CRLF), nil
 }
 
-func marshalError(v any) (string, error) {
-	vErr := v.(error)
-	res, err := marshalSimpleString(vErr.Error())
-	if err != nil {
-		return "", err
+type errorMarshaller struct{}
+
+func (m *errorMarshaller) isValid(v any) bool {
+	switch v.(type) {
+	case error:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *errorMarshaller) marshal(input *marshalInput) (string, error) {
+	vErr := input.value.(error)
+
+	if strings.Contains(vErr.Error(), CR) {
+		return "", errors.New("error mustn't contain \\r")
+	}
+	if strings.Contains(vErr.Error(), LF) {
+		return "", errors.New("simple string mustn't contain \\n")
 	}
 
-	return strings.Replace(res, stringSuffix, errorSuffix, 1), nil
+	return fmt.Sprintf("%s%s%s", errorSuffix, vErr.Error(), CRLF), nil
 }
 
-func marshalInt(v any) (ret string, retErr error) {
-	return fmt.Sprintf("%v%s%s", intSuffix, fmt.Sprintf("%d", v), CRLF), nil
+type intMarshaller struct{}
+
+func (m *intMarshaller) isValid(v any) bool {
+	switch v.(type) {
+	case int, int8, int16, int32, int64:
+		return true
+	default:
+		return false
+	}
 }
 
-func marshalArray(v any) (string, error) {
+func (m *intMarshaller) marshal(input *marshalInput) (string, error) {
+	return fmt.Sprintf("%v%s%s", intSuffix, fmt.Sprintf("%d", input.value), CRLF), nil
+}
+
+type arrayMarshaller struct{}
+
+func (m *arrayMarshaller) isValid(v any) bool {
+	if v == nil {
+		return false
+	}
+
+	kind := reflect.TypeOf(v).Kind()
+
+	return kind == reflect.Slice || kind == reflect.Array
+}
+
+func (m *arrayMarshaller) marshal(input *marshalInput) (string, error) {
+	v := input.indirectValueFunc()
+
 	value := reflect.ValueOf(v)
 
 	arrayLen := value.Len()
@@ -118,4 +172,33 @@ func marshalArray(v any) (string, error) {
 	}
 
 	return builder.String(), nil
+}
+
+type nullMarshaller struct{}
+
+func (m *nullMarshaller) isValid(v any) bool {
+	return utils.IsNull(v)
+}
+
+func (m *nullMarshaller) marshal(input *marshalInput) (string, error) {
+	return fmt.Sprintf("%s%s", nullSuffix, CRLF), nil
+}
+
+type booleanMarshaller struct{}
+
+func (m *booleanMarshaller) isValid(v any) bool {
+	switch v.(type) {
+	case bool:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *booleanMarshaller) marshal(input *marshalInput) (string, error) {
+	boolStr := "t"
+	if !input.value.(bool) {
+		boolStr = "f"
+	}
+	return fmt.Sprintf("%s%s%s", boolSuffix, boolStr, CRLF), nil
 }
