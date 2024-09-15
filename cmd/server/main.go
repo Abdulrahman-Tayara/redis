@@ -1,16 +1,26 @@
 package main
 
 import (
+	"redis/internal/commands"
+	"redis/internal/configs"
 	"redis/internal/server"
-	"redis/internal/transport"
+	store2 "redis/internal/store"
+	"redis/pkg/transport"
 )
 
 func main() {
 
-	s := server.NewRedisServer(transport.NewTcpTransport(":9871"))
+	store := store2.NewInMemoryStore()
 
-	if err := s.Serve(); err != nil {
+	commandsServer := commands.NewServer(&configs.Configs{
+		Version:      "6.0.3",
+		ProtoVersion: 3,
+		Mode:         "standalone",
+		Modules:      []string{},
+	}, store)
+
+	s := server.NewRedisServer(transport.NewTcpTransport(":9871"))
+	if err := s.Serve(commandsServer.Handlers()); err != nil {
 		panic(err)
 	}
-
 }

@@ -141,6 +141,24 @@ func TestMarshal_MarshalNull(t *testing.T) {
 	}
 }
 
+func TestMarshal_MarshalMap(t *testing.T) {
+	tests := []marshalTest[map[any]any]{
+		{
+			"Valid map",
+			map[any]any{
+				"first":  1,
+				"second": 2,
+			},
+			"%2\r\n+first\r\n:1\r\n+second\r\n:2\r\n",
+			nil,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, marshalTestRunner(&test))
+	}
+}
+
 type marshalTest[T any] struct {
 	name        string
 	input       T

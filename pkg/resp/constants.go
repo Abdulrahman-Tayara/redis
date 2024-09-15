@@ -14,4 +14,5 @@ const (
 	arraySuffix       = "*"
 	nullSuffix        = "_"
 	boolSuffix        = "#"
+	mapSuffix         = "%"
 )

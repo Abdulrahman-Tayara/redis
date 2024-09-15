@@ -54,7 +54,7 @@ func unmarshal(v string) (any, error) {
 	}
 
 	if u, ok := unmarshallers[string(v[0])]; !ok {
-		return nil, fmt.Errorf("invalid value %v", v)
+		return nil, fmt.Errorf("ERR syntax error")
 	} else {
 		return u(v)
 	}

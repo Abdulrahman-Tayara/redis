@@ -25,6 +25,7 @@ var marshallers = []marshaller{
 	&booleanMarshaller{},
 	&arrayMarshaller{},
 	&nullMarshaller{},
+	&mapMarshaller{},
 }
 
 func Marshal(v any) (string, error) {
@@ -96,9 +97,6 @@ func (m *errorMarshaller) isValid(v any) bool {
 func (m *errorMarshaller) marshal(input *marshalInput) (string, error) {
 	vErr := input.value.(error)
 
-	if strings.Contains(vErr.Error(), CR) {
-		return "", errors.New("error mustn't contain \\r")
-	}
 	if strings.Contains(vErr.Error(), LF) {
 		return "", errors.New("simple string mustn't contain \\n")
 	}
@@ -185,4 +183,44 @@ func (m *booleanMarshaller) marshal(input *marshalInput) (string, error) {
 		boolStr = "f"
 	}
 	return fmt.Sprintf("%s%s%s", boolSuffix, boolStr, CRLF), nil
+}
+
+type mapMarshaller struct{}
+
+func (m *mapMarshaller) isValid(v any) bool {
+	if v == nil {
+		return false
+	}
+
+	kind := reflect.TypeOf(v).Kind()
+	return kind == reflect.Map
+}
+
+func (m *mapMarshaller) marshal(input *marshalInput) (string, error) {
+	value := reflect.ValueOf(input.indirectValueFunc())
+
+	mapKeys := value.MapKeys()
+
+	mapLen := len(mapKeys)
+
+	builder := strings.Builder{}
+
+	builder.WriteString(fmt.Sprintf("%s%d%s", mapSuffix, mapLen, CRLF))
+
+	for _, keyElement := range mapKeys {
+		elementValue := value.MapIndex(keyElement)
+
+		k, err := Marshal(keyElement.Interface())
+		if err != nil {
+			return "", err
+		}
+		v, err := Marshal(elementValue.Interface())
+		if err != nil {
+			return "", err
+		}
+
+		builder.WriteString(fmt.Sprintf("%s%s", k, v))
+	}
+
+	return builder.String(), nil
 }

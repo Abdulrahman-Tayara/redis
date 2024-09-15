@@ -1,37 +1,40 @@
 package server
 
 import (
-	"context"
-	"errors"
 	"net"
-	"redis/internal/transport"
-	"redis/logger"
-	"redis/pkg/resp"
+	"redis/pkg/transport"
+	"sync"
 )
+
+type ConnectionHandler interface {
+	Handle(*RedisConnection)
+}
 
 type RedisServer struct {
 	transport transport.Transport
 
-	handlers map[string]CommandHandler
+	handler ConnectionHandler
+
+	connections         map[net.Addr]*RedisConnection
+	connectionIdCounter int32
+	sync.Mutex
 }
 
 func NewRedisServer(transport transport.Transport) *RedisServer {
 	s := RedisServer{
-		transport: transport,
-		handlers:  make(map[string]CommandHandler),
+		transport:   transport,
+		connections: make(map[net.Addr]*RedisConnection),
 	}
 
 	return &s
 }
 
-func (s *RedisServer) Handle(command string, handler CommandHandler) {
-	s.handlers[command] = handler
-}
-
-func (s *RedisServer) Serve() error {
+func (s *RedisServer) Serve(handler ConnectionHandler) error {
 	if err := s.transport.ListenAndAccept(); err != nil {
 		return err
 	}
+
+	s.handler = handler
 
 	s.startLoop()
 
@@ -48,48 +51,20 @@ func (s *RedisServer) startLoop() {
 
 // handleConnection runs in a separated goroutine
 func (s *RedisServer) handleConnection(conn net.Conn) {
-	defer func() {
-		logger.Infof("closing %s connection", conn.RemoteAddr().String())
+	s.Lock()
 
-		if err := conn.Close(); err != nil {
-			logger.Errorf("conn close err: %v", err.Error())
-		}
-	}()
+	s.connectionIdCounter++
 
-	w := resp.NewRespWriter(conn)
+	rconn := NewRedisConnection(conn, s.connectionIdCounter, 4096)
+	s.connections[conn.RemoteAddr()] = rconn
 
-	writeErrFunc := func(err error) {
-		if _, err = w.WriteAny(err); err != nil {
-			logger.Errorf("conn write err: %v", err.Error())
-		}
-	}
+	s.Unlock()
 
-	for {
-		buf := make([]byte, 4096)
+	s.handler.Handle(rconn)
 
-		n, err := conn.Read(buf)
-		if err != nil {
-			break
-		}
-
-		command, args, err := ReadRespCommand(buf[:n])
-		if err != nil {
-			logger.Error(err)
-			writeErrFunc(errors.New("INVALID_RESP_CONTENT"))
-			continue
-		}
-
-		commandHandler, ok := s.handlers[command]
-		if !ok {
-			writeErrFunc(errors.New("INVALID_COMMAND"))
-			continue
-		}
-
-		ctx := newContext(context.TODO(), conn, command, args)
-
-		commandHandler.Handle(ctx, w)
-	}
-
+	s.Lock()
+	delete(s.connections, conn.RemoteAddr())
+	s.Unlock()
 }
 
 func (s *RedisServer) Close() error {
