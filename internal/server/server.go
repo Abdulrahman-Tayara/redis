@@ -55,7 +55,7 @@ func (s *RedisServer) handleConnection(conn net.Conn) {
 
 	s.connectionIdCounter++
 
-	rconn := NewRedisConnection(conn, s.connectionIdCounter, 4096)
+	rconn := NewRedisConnection(conn, s.connectionIdCounter)
 	s.connections[conn.RemoteAddr()] = rconn
 
 	s.Unlock()

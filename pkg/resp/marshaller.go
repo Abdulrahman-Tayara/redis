@@ -59,7 +59,7 @@ func (m *stringMarshaller) isValid(v any) bool {
 func (m *stringMarshaller) marshal(input *marshalInput) (string, error) {
 	vStr := input.value.(string)
 
-	if strings.Contains(vStr, CR) || strings.Contains(vStr, LF) {
+	if strings.Contains(vStr, string(CR)) || strings.Contains(vStr, string(LF)) {
 		return m.marshalBulkStrings(vStr)
 	}
 
@@ -73,10 +73,10 @@ func (m *stringMarshaller) marshalBulkStrings(v string) (string, error) {
 }
 
 func (m *stringMarshaller) marshalSimpleString(v string) (string, error) {
-	if strings.Contains(v, CR) {
+	if strings.Contains(v, string(CR)) {
 		return "", errors.New("simple string mustn't contain \\r")
 	}
-	if strings.Contains(v, LF) {
+	if strings.Contains(v, string(LF)) {
 		return "", errors.New("simple string mustn't contain \\n")
 	}
 
@@ -97,7 +97,7 @@ func (m *errorMarshaller) isValid(v any) bool {
 func (m *errorMarshaller) marshal(input *marshalInput) (string, error) {
 	vErr := input.value.(error)
 
-	if strings.Contains(vErr.Error(), LF) {
+	if strings.Contains(vErr.Error(), string(LF)) {
 		return "", errors.New("simple string mustn't contain \\n")
 	}
 

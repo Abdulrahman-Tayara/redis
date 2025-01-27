@@ -6,7 +6,6 @@ import (
 	"net"
 	"redis/logger"
 	"redis/pkg/iox"
-	"redis/pkg/resp"
 	"strings"
 )
 
@@ -81,15 +80,20 @@ func (h *ConnectionServe) Handle(conn *RedisConnection) {
 		command, args, err := conn.ReadCommand()
 		if err != nil {
 			// the resp.ErrReaderRead belongs to the connection.Read() error
-			if errors.Is(resp.ErrReaderRead, err) || errors.Is(resp.ErrReaderRead, errors.Unwrap(err)) {
+			if _, ok := err.(net.Error); ok {
+				logger.Errorf("conn read err: %v", err.Error())
 				break
 			}
-
 			h.writeError(err, conn)
+			continue
+		}
+		if command == "" {
 			continue
 		}
 
 		command = h.normalizeCommand(command)
+
+		logger.Infof("executing command: %s, args: %v", command, args)
 
 		commandHandler, ok := h.commandHandlers[command]
 		if !ok {

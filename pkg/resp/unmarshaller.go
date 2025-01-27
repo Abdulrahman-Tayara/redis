@@ -1,9 +1,9 @@
 package resp
 
 import (
+	"bufio"
 	"errors"
-	"fmt"
-	"redis/pkg/utils"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -12,232 +12,194 @@ var (
 	ErrValueNotEndWithCrlf = errors.New("value doesn't end with crlf suffix")
 )
 
-type unmarshaller func(v string) (any, error)
+func Unmarshal(r *bufio.Reader) ([]any, error) {
+	bufReader := r
 
-var (
-	unmarshallers map[string]unmarshaller
+	values := []any{}
 
-	crlfCountsPerType = map[string]int{
-		stringSuffix:      1,
-		errorSuffix:       1,
-		intSuffix:         1,
-		bulkStringsSuffix: 2,
-	}
-)
-
-func init() {
-	if unmarshallers == nil {
-		unmarshallers = map[string]unmarshaller{
-			stringSuffix:      simpleStringUnmarshaller,
-			errorSuffix:       errorUnmarshaller,
-			intSuffix:         intUnmarshaller,
-			bulkStringsSuffix: bulkStringsUnmarshaller,
-			arraySuffix:       arrayUnmarshaller,
-		}
-	}
-}
-
-func Unmarshal(v any) (any, error) {
-	switch v.(type) {
-	case string:
-		return unmarshal(v.(string))
-	case []byte:
-		return unmarshal(string(v.([]byte)))
-	}
-
-	return nil, fmt.Errorf("can't unmarshal this type %T", v)
-}
-
-func unmarshal(v string) (any, error) {
-	if len(v) == 0 {
-		return nil, errors.New("invalid empty input")
-	}
-
-	if u, ok := unmarshallers[string(v[0])]; !ok {
-		return nil, fmt.Errorf("ERR syntax error")
-	} else {
-		return u(v)
-	}
-}
-
-func simpleStringUnmarshaller(v string) (any, error) {
-	if !strings.HasSuffix(v, CRLF) {
-		return nil, ErrValueNotEndWithCrlf
-	}
-
-	str := removeCrlfSuffix(v[1:])
-
-	if strings.Contains(str, CR) || strings.Contains(str, LF) {
-		return nil, errors.New("simple string mustn't contain a CR or LF character")
-	}
-
-	return str, nil
-}
-
-func errorUnmarshaller(v string) (any, error) {
-	if !strings.HasSuffix(v, CRLF) {
-		return nil, ErrValueNotEndWithCrlf
-	}
-
-	str := removeCrlfSuffix(v[1:])
-
-	if strings.Contains(str, CR) || strings.Contains(str, LF) {
-		return nil, errors.New("error string mustn't contain a CR or LF character")
-	}
-
-	return str, nil
-}
-
-func intUnmarshaller(v string) (any, error) {
-	if !strings.HasSuffix(v, CRLF) {
-		return nil, ErrValueNotEndWithCrlf
-	}
-
-	str := removeCrlfSuffix(v[1:])
-
-	i, err := strconv.Atoi(str)
-	if err != nil {
-		return nil, errors.New("invalid int parsing")
-	}
-
-	return i, nil
-}
-
-func bulkStringsUnmarshaller(v string) (any, error) {
-	if !strings.HasSuffix(v, CRLF) {
-		return nil, ErrValueNotEndWithCrlf
-	}
-
-	str := removeCrlfSuffix(v[1:])
-
-	// https://redis.io/docs/latest/develop/reference/protocol-spec/#bulk-strings
-	if str == "-1" { // Null bulk strings
-		return nil, nil
-	}
-
-	elements := strings.Split(str, CRLF)
-
-	if len(elements) != 2 {
-		return nil, errors.New("invalid bulk strings structure")
-	}
-
-	stringLengthStr, content := elements[0], elements[1]
-
-	stringLength, err := strconv.Atoi(stringLengthStr)
-	if err != nil {
-		return nil, errors.New("invalid string length value, expected one or more decimal digits (0..9)")
-	}
-
-	if stringLength != len(content) {
-		return nil, errors.New("content length doesn't match the passed string length")
-	}
-
-	return content, nil
-}
-
-func arrayUnmarshaller(v string) (any, error) {
-	if !strings.HasSuffix(v, CRLF) {
-		return nil, ErrValueNotEndWithCrlf
-	}
-
-	elements := strings.Split(v, CRLF)
-
-	elementsWithCrlfSuffix := utils.Map(
-		utils.Filter(elements, func(s string, i int) bool {
-			return s != ""
-		}),
-		func(t string, i int) string {
-			return fmt.Sprintf("%s%s", t, CRLF)
-		},
-	)
-
-	arrayRespElements, err := parseArrayElements(elementsWithCrlfSuffix)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(arrayRespElements) == 0 {
-		return []any{}, nil
-	}
-
-	var arrayElements []any
-
-	for _, element := range arrayRespElements {
-		if elementValue, err := Unmarshal(element); err == nil {
-			arrayElements = append(arrayElements, elementValue)
-		} else {
+	for {
+		value, err := read(bufReader)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
 			return nil, err
 		}
-	}
+		values = append(values, value)
 
-	return arrayElements, nil
-}
-
-func parseArrayElements(parts []string) ([]string, error) {
-	var elements []string
-
-	arrayPart := parts[0]
-
-	arrayLength, err := parseArrayLength(arrayPart)
-	if err != nil {
-		return nil, err
-	}
-
-	for i := 1; i < len(parts); i++ {
-		part := parts[i]
-
-		opType := string(part[0])
-
-		if opType == arraySuffix {
-			nestedArrayElements, err := parseArrayElements(parts[i:])
-			if err != nil {
-				return nil, err
-			}
-
-			nestedArrayStr := strings.Join(
-				append(
-					[]string{part}, // Add the array part to the beginning of the string
-					nestedArrayElements...,
-				),
-				"",
-			)
-
-			elements = append(elements, nestedArrayStr)
-
-			i += len(nestedArrayElements) // skip the nested array elements
-		} else {
-			partsCount, ok := crlfCountsPerType[opType]
-			if !ok {
-				partsCount = 1
-			}
-
-			elements = append(elements, strings.Join(parts[i:i+partsCount], ""))
-
-			i += partsCount - 1
-		}
-
-		if len(elements) == arrayLength {
+		if bufReader.Buffered() == 0 {
 			break
 		}
 	}
 
+	return values, nil
+}
+
+func read(reader *bufio.Reader) (any, error) {
+	dataType, _, err := reader.ReadRune()
+	if err != nil {
+		return nil, err
+	}
+
+	switch string(dataType) {
+	case stringSuffix:
+		return readString(reader)
+	case errorSuffix:
+		return readString(reader)
+	case bulkStringsSuffix:
+		return readBulkStrings(reader)
+	case intSuffix:
+		return readInt(reader)
+	case doubleSuffix:
+		return readDouble(reader)
+	case boolSuffix:
+		return readBool(reader)
+	case nullSuffix:
+		return nil, nil
+	case arraySuffix:
+		return readArray(reader)
+	case mapSuffix:
+		return readMap(reader)
+	}
+
+	return nil, errors.New("invalid data format")
+}
+
+func readString(reader *bufio.Reader) (string, error) {
+	value, err := readUntilCRLF(reader, bytesToString)
+	if err != nil {
+		return "", err
+	}
+	strValue := string(value)
+	if strings.Contains(strValue, string(LF)) || strings.Contains(strValue, string(CR)) {
+		return "", errors.New("simple string mustn't contain a CR or LF character")
+	}
+	return strValue, nil
+}
+
+func readBulkStrings(reader *bufio.Reader) (string, error) {
+	length, err := readUntilCRLF(reader, bytesToInt)
+	if err != nil {
+		return "", errors.New("invalid string length value, expected one or more decimal digits (0..9)")
+	}
+	if length == 0 {
+		reader.Discard(len(CRLF))
+		return "", nil
+	}
+
+	bytes := make([]byte, length)
+	size, err := reader.Read(bytes)
+	if err != nil {
+		return "", nil
+	}
+
+	reader.Discard(len(CRLF))
+
+	return string(bytes[:size]), nil
+}
+
+func readInt(reader *bufio.Reader) (int64, error) {
+	return readUntilCRLF(reader, bytesToInt)
+}
+
+func readDouble(reader *bufio.Reader) (float64, error) {
+	return readUntilCRLF(reader, bytesToFloat64)
+}
+
+func readBool(reader *bufio.Reader) (bool, error) {
+	str, err := readUntilCRLF(reader, bytesToString)
+	if err != nil {
+		return false, err
+	}
+
+	return strconv.ParseBool(str)
+}
+
+func readArray(reader *bufio.Reader) ([]any, error) {
+	length, err := readUntilCRLF(reader, bytesToInt)
+	if err != nil {
+		return nil, err
+	}
+	if length == 0 {
+		return []any{}, nil
+	}
+
+	elements := make([]any, length)
+	for i := 0; i < int(length); i++ {
+		element, err := read(reader)
+		if err != nil {
+			return nil, err
+		}
+		elements[i] = element
+	}
 	return elements, nil
 }
 
-func parseArrayLength(v string) (int, error) {
-	firstCrlfIdx := strings.Index(v, CRLF)
-	if firstCrlfIdx <= 0 {
-		return 0, errors.New("invalid array structure")
-	}
-
-	arrayLength, err := strconv.Atoi(v[1:firstCrlfIdx])
+func readMap(reader *bufio.Reader) (map[any]any, error) {
+	length, err := readUntilCRLF(reader, bytesToInt)
 	if err != nil {
-		return 0, err
+		return nil, err
+	}
+	if length == 0 {
+		return map[any]any{}, nil
 	}
 
-	return arrayLength, nil
+	elements := make(map[any]any, length)
+	for i := 0; i < int(length); i++ {
+		key, err := read(reader)
+		if err != nil {
+			return nil, err
+		}
+		value, err := read(reader)
+		if err != nil {
+			return nil, err
+		}
+		elements[key] = value
+	}
+	return elements, nil
 }
 
-func removeCrlfSuffix(v string) string {
-	return v[:len(v)-len(CRLF)]
+// ------ Helpers
+
+func readUntilCRLF[T any](reader *bufio.Reader, formatter func([]byte) (T, error)) (T, error) {
+	var ret T
+	var err error
+
+	value, err := reader.ReadSlice(CR)
+	if err != nil {
+		return ret, ErrValueNotEndWithCrlf
+	}
+	nextRune, err := reader.Peek(1)
+	if err != nil {
+		return ret, err
+	}
+	if string(nextRune) != string(LF) {
+		return ret, errors.New("invalid format")
+	}
+
+	// Discard LF
+	if n, _ := reader.Discard(1); n <= 0 {
+		return ret, ErrValueNotEndWithCrlf
+	}
+
+	value = value[:len(value)-1] // Remove CR
+
+	ret, err = formatter(value)
+	return ret, err
+}
+
+func bytesToString(bytes []byte) (string, error) {
+	return string(bytes), nil
+}
+
+func bytesToInt(bytes []byte) (int64, error) {
+	v, err := strconv.ParseInt(string(bytes), 10, 64)
+	if err != nil {
+		return 0, errors.New("invalid int parsing")
+	}
+	return v, nil
+}
+
+func bytesToFloat64(bytes []byte) (float64, error) {
+	return strconv.ParseFloat(string(bytes), 64)
 }

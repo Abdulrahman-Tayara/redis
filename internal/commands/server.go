@@ -24,6 +24,7 @@ func (s *Server) Handlers() server.ConnectionHandler {
 
 	handler.Command("hello", s.HandleHello())
 	handler.Command("set", s.HandleSet())
+	handler.Command("client", s.HandleClientCommands())
 
 	return handler
 }

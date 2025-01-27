@@ -2,8 +2,9 @@ package resp
 
 import (
 	"bytes"
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCommandReader_ReadCommand(t *testing.T) {
@@ -11,7 +12,7 @@ func TestCommandReader_ReadCommand(t *testing.T) {
 
 	r := bytes.NewReader([]byte(command))
 
-	cr := NewCommandReader(r, 4096)
+	cr := NewCommandReader(r)
 
 	command, args, err := cr.ReadCommand()
 

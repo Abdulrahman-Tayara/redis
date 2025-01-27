@@ -1,14 +1,13 @@
 package resp
 
 import (
+	"bufio"
 	"errors"
-	"fmt"
 	"io"
 )
 
 var (
 	ErrInvalidRespCommand = errors.New("INVALID_RESP_COMMAND")
-	ErrReaderRead         = errors.New("READ_ERROR")
 )
 
 type CommandReader interface {
@@ -17,47 +16,43 @@ type CommandReader interface {
 }
 
 type commandReader struct {
-	r io.Reader
-
-	buf int
+	r            io.Reader
+	bufferReader *bufio.Reader
 }
 
-func NewCommandReader(r io.Reader, buf int) CommandReader {
+func NewCommandReader(r io.Reader) CommandReader {
 	return &commandReader{
-		r:   r,
-		buf: buf,
+		r:            r,
+		bufferReader: bufio.NewReader(r),
 	}
 }
 
 func (r *commandReader) ReadCommand() (string, []any, error) {
-	buffer := make([]byte, r.buf)
-
-	n, err := r.r.Read(buffer)
-	if err != nil {
-		return "", nil, fmt.Errorf("%w, err: %v", ErrReaderRead, err.Error())
-	}
-
-	respValue, err := Unmarshal(buffer[:n])
+	respSegments, err := Unmarshal(r.bufferReader)
 	if err != nil {
 		return "", nil, err
 	}
 
-	switch respValue.(type) {
-	case string:
-		return respValue.(string), []any{}, nil
-	case []any:
-		arr := respValue.([]any)
-		if len(arr) == 0 {
-			return "", nil, ErrInvalidRespCommand
+	for _, respSegment := range respSegments {
+		switch segment := respSegment.(type) {
+		case string:
+			return segment, []any{}, nil
+		case []any:
+			arr := segment
+			if len(arr) == 0 {
+				return "", nil, ErrInvalidRespCommand
+			}
+
+			command, ok := arr[0].(string)
+			if !ok {
+				return "", nil, ErrInvalidRespCommand
+			}
+
+			return command, arr[1:], nil
 		}
 
-		command, ok := arr[0].(string)
-		if !ok {
-			return "", nil, ErrInvalidRespCommand
-		}
-
-		return command, arr[1:], nil
+		return "", nil, ErrInvalidRespCommand
 	}
 
-	return "", nil, ErrInvalidRespCommand
+	return "", nil, nil
 }

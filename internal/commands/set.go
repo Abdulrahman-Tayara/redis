@@ -21,5 +21,7 @@ func (s *Server) HandleSet() server.CommandHandlerFunc {
 			_, _ = w.WriteAny(err)
 			return
 		}
+
+		_, _ = w.WriteAny("OK")
 	}
 }

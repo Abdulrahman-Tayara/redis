@@ -2,8 +2,8 @@ package resp
 
 const (
 	CRLF = "\r\n"
-	CR   = "\r"
-	LF   = "\n"
+	CR   = '\r'
+	LF   = '\n'
 )
 
 const (
@@ -15,4 +15,5 @@ const (
 	nullSuffix        = "_"
 	boolSuffix        = "#"
 	mapSuffix         = "%"
+	doubleSuffix      = ","
 )
