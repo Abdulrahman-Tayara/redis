@@ -2,19 +2,15 @@ package main
 
 import (
 	"context"
-	"log"
-	"time"
-
 	"github.com/redis/go-redis/v9"
+	"log"
 )
 
 func main() {
 	rdb := redis.NewClient(&redis.Options{
-		Addr:        "localhost:9871",
-		Password:    "", // no password set
-		DB:          0,  // use default DB
-		ReadTimeout: time.Hour,
-		DialTimeout: time.Hour,
+		Addr:     "localhost:9871",
+		Password: "", // no password set
+		DB:       0,  // use default DB
 	})
 
 	defer rdb.Close()

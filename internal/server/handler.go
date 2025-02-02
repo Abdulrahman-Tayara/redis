@@ -47,6 +47,14 @@ func (c *Context) ConnectionId() int32 {
 	return c.conn.Id
 }
 
+func (c *Context) Set(key, value string) {
+	c.conn.SetInfo(key, value)
+}
+
+func (c *Context) Get(key string) (string, bool) {
+	return c.conn.GetInfo(key)
+}
+
 type CommandHandlerFunc func(ctx *Context, w iox.AnyWriter)
 
 func (c CommandHandlerFunc) Handle(ctx *Context, w iox.AnyWriter) {
