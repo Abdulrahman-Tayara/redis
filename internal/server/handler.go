@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"redis/logger"
 	"redis/pkg/iox"
-	"strings"
 )
 
 var (
@@ -57,18 +57,42 @@ type CommandHandler interface {
 	Handle(ctx *Context, w iox.AnyWriter)
 }
 
-type ConnectionServe struct {
-	commandHandlers map[string]CommandHandler
+type ConnectionServerOptions struct {
+	ErrHandler    func(err error, w iox.AnyWriter)
+	CommandMapper func(string) string
 }
 
-func NewConnectionServe() *ConnectionServe {
-	return &ConnectionServe{
+type ConnectionServe struct {
+	commandHandlers map[string]CommandHandler
+
+	errHandler func(err error, w iox.AnyWriter)
+
+	commandMapper func(string) string
+}
+
+func NewConnectionServe(opts *ConnectionServerOptions) *ConnectionServe {
+	server := &ConnectionServe{
 		commandHandlers: make(map[string]CommandHandler),
+		errHandler:      writeError,
+		commandMapper: func(s string) string {
+			return s
+		},
 	}
+
+	if opts != nil {
+		if opts.ErrHandler != nil {
+			server.errHandler = opts.ErrHandler
+		}
+		if opts.CommandMapper != nil {
+			server.commandMapper = opts.CommandMapper
+		}
+	}
+
+	return server
 }
 
 func (h *ConnectionServe) Command(command string, handler CommandHandler) {
-	h.commandHandlers[h.normalizeCommand(command)] = handler
+	h.commandHandlers[h.commandMapper(command)] = handler
 }
 
 func (h *ConnectionServe) Handle(conn *RedisConnection) {
@@ -79,26 +103,32 @@ func (h *ConnectionServe) Handle(conn *RedisConnection) {
 	for {
 		command, args, err := conn.ReadCommand()
 		if err != nil {
+			if err == io.EOF {
+				break
+			}
+
 			// the resp.ErrReaderRead belongs to the connection.Read() error
-			if _, ok := err.(net.Error); ok {
+			var netErr net.Error
+			if errors.As(err, &netErr) {
 				logger.Errorf("conn read err: %v", err.Error())
 				break
 			}
-			h.writeError(err, conn)
+
+			h.errHandler(err, conn)
 			continue
 		}
 		if command == "" {
 			continue
 		}
 
-		command = h.normalizeCommand(command)
+		command = h.commandMapper(command)
 
 		logger.Infof("executing command: %s, args: %v", command, args)
 
 		commandHandler, ok := h.commandHandlers[command]
 		if !ok {
 			logger.Errorf("command %s is not found, args: %v", command, args)
-			h.writeError(ErrCommandNotFound, conn)
+			h.errHandler(ErrCommandNotFound, conn)
 			continue
 		}
 
@@ -108,21 +138,17 @@ func (h *ConnectionServe) Handle(conn *RedisConnection) {
 	}
 }
 
-func (h *ConnectionServe) normalizeCommand(cmd string) string {
-	return strings.ToLower(cmd)
-}
-
-func (h *ConnectionServe) writeError(err error, w iox.AnyWriter) {
-	logger.Error(err)
-	if _, err = w.WriteAny(err); err != nil {
-		logger.Errorf("conn write err: %v", err.Error())
-	}
-}
-
 func (h *ConnectionServe) close(conn *RedisConnection) {
 	logger.Infof("closing %s connection", conn.RemoteAddr().String())
 
 	if err := conn.Close(); err != nil {
 		logger.Errorf("conn close err: %v", err.Error())
+	}
+}
+
+func writeError(err error, w iox.AnyWriter) {
+	logger.Error(err)
+	if _, err = w.WriteAny(err); err != nil {
+		logger.Errorf("conn write err: %v", err.Error())
 	}
 }

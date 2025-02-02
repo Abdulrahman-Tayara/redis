@@ -3,7 +3,6 @@ package resp
 import (
 	"bufio"
 	"errors"
-	"io"
 	"strconv"
 	"strings"
 )
@@ -20,9 +19,6 @@ func Unmarshal(r *bufio.Reader) ([]any, error) {
 	for {
 		value, err := read(bufReader)
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
 			return nil, err
 		}
 		values = append(values, value)

@@ -18,6 +18,8 @@ type CommandReader interface {
 type commandReader struct {
 	r            io.Reader
 	bufferReader *bufio.Reader
+
+	bufferedCommands []any
 }
 
 func NewCommandReader(r io.Reader) CommandReader {
@@ -28,31 +30,46 @@ func NewCommandReader(r io.Reader) CommandReader {
 }
 
 func (r *commandReader) ReadCommand() (string, []any, error) {
+	return r.readCommand()
+}
+
+func (r *commandReader) readCommand() (string, []any, error) {
+	if len(r.bufferedCommands) > 0 {
+		respSegment := r.bufferedCommands[0]
+		r.bufferedCommands = r.bufferedCommands[1:]
+		return parseRespCommand(respSegment)
+	}
+
 	respSegments, err := Unmarshal(r.bufferReader)
 	if err != nil {
 		return "", nil, err
 	}
+	if len(respSegments) == 0 {
+		return "", nil, nil
+	}
+	respSegment := respSegments[0]
+	r.bufferedCommands = respSegments[1:]
 
-	for _, respSegment := range respSegments {
-		switch segment := respSegment.(type) {
-		case string:
-			return segment, []any{}, nil
-		case []any:
-			arr := segment
-			if len(arr) == 0 {
-				return "", nil, ErrInvalidRespCommand
-			}
+	return parseRespCommand(respSegment)
+}
 
-			command, ok := arr[0].(string)
-			if !ok {
-				return "", nil, ErrInvalidRespCommand
-			}
-
-			return command, arr[1:], nil
+func parseRespCommand(respCommand any) (string, []any, error) {
+	switch segment := respCommand.(type) {
+	case string:
+		return segment, []any{}, nil
+	case []any:
+		arr := segment
+		if len(arr) == 0 {
+			return "", nil, ErrInvalidRespCommand
 		}
 
-		return "", nil, ErrInvalidRespCommand
+		command, ok := arr[0].(string)
+		if !ok {
+			return "", nil, ErrInvalidRespCommand
+		}
+
+		return command, arr[1:], nil
 	}
 
-	return "", nil, nil
+	return "", nil, ErrInvalidRespCommand
 }
