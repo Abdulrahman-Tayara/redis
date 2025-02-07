@@ -5,12 +5,15 @@ import (
 	"redis/internal/configs"
 	"redis/internal/server"
 	store2 "redis/internal/store"
+	"redis/pkg/ds"
 	"redis/pkg/transport"
 )
 
 func main() {
 
-	store := store2.NewInMemoryStore()
+	hashTable := ds.NewExpiringHashTable()
+
+	store := store2.NewStore(hashTable)
 
 	commandsServer := commands.NewServer(&configs.Configs{
 		Version:      "6.0.3",

@@ -15,9 +15,11 @@ func (s *Server) HandleGet() server.CommandHandlerFunc {
 			return
 		}
 
+		hashTable := s.store.HashTable()
+
 		key := args[0]
 
-		if v, err := s.store.Get(key.(string)); err != nil {
+		if v, err := hashTable.Get(key.(string)); err != nil {
 			_, _ = w.WriteAny(err)
 			return
 		} else {

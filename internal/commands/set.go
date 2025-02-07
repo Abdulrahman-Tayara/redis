@@ -17,7 +17,9 @@ func (s *Server) HandleSet() server.CommandHandlerFunc {
 
 		key, value := args[0], args[1]
 
-		if err := s.store.Set(key.(string), value); err != nil {
+		hashTable := s.store.HashTable()
+
+		if err := hashTable.Set(key.(string), value); err != nil {
 			_, _ = w.WriteAny(err)
 			return
 		}

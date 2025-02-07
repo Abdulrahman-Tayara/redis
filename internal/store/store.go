@@ -1,9 +1,24 @@
 package store
 
+import (
+	"redis/pkg/ds"
+)
+
 type Store interface {
-	Set(key string, val any) error
+	HashTable() *ds.ExpiringHashTable
+}
 
-	Get(key string) (any, error)
+type store struct {
+	hashTable *ds.ExpiringHashTable
+}
 
-	Keys(pattern string) ([]string, error)
+func NewStore(ht *ds.ExpiringHashTable) Store {
+	s := store{
+		hashTable: ht,
+	}
+	return &s
+}
+
+func (s *store) HashTable() *ds.ExpiringHashTable {
+	return s.hashTable
 }
