@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"flag"
+	"os/signal"
 	"redis/internal/commands"
 	"redis/internal/configs"
 	"redis/internal/server"
@@ -9,21 +12,30 @@ import (
 	"redis/pkg/active_expiration"
 	"redis/pkg/ds"
 	"redis/pkg/transport"
+	"syscall"
 )
 
+var (
+	configFilePath = ""
+)
+
+func init() {
+	flag.StringVar(&configFilePath, "config", "config.json", "config file path")
+	flag.Parse()
+}
+
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	defer stop()
+
+	cfg, err := configs.LoadConfigsOrDefaults(configFilePath)
+	if err != nil {
+		panic(err)
+	}
 
 	hashTable := ds.NewExpiringHashTable()
 
 	store := store2.NewStore(hashTable)
-
-	cfg := &configs.Configs{
-		Version:      "6.0.3",
-		ProtoVersion: 3,
-		Mode:         "standalone",
-		Modules:      []string{},
-		Port:         "9871",
-	}
 
 	runActiveExpirationLoop(cfg, hashTable)
 
@@ -33,7 +45,19 @@ func main() {
 
 	logger.Infof("Starting server on %s...", cfg.Port)
 
-	if err := s.Serve(commandsServer.Handlers()); err != nil {
+	go func() {
+		if err := s.Serve(commandsServer.Handlers()); err != nil {
+			panic(err)
+		}
+	}()
+
+	// listen for the interrupt signal
+	<-ctx.Done()
+
+	logger.Infof("Shutting down server on %s...", cfg.Port)
+
+	// stop the serve
+	if err = s.Close(); err != nil {
 		panic(err)
 	}
 }
