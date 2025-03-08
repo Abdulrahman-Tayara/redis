@@ -5,6 +5,10 @@ import (
 	"strconv"
 )
 
+func BoolPtr(b bool) *bool {
+	return &b
+}
+
 func IsNull(v any) (ret bool) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -96,4 +100,23 @@ func ToString(v any) string {
 	}
 
 	return ""
+}
+
+func MustParseInt(v any) int {
+	switch v.(type) {
+	case int:
+		return v.(int)
+	case int32:
+		return int(v.(int32))
+	case int64:
+		return int(v.(int64))
+	case string:
+		i, err := strconv.Atoi(v.(string))
+		if err != nil {
+			panic(err)
+		}
+		return i
+	default:
+		return 0
+	}
 }

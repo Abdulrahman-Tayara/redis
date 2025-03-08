@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"github.com/redis/go-redis/v9"
 	"log"
+	"time"
 )
 
 func main() {
@@ -17,14 +19,19 @@ func main() {
 
 	ctx := context.TODO()
 
-	err := rdb.Set(ctx, "key", "value", 0).Err()
+	err := rdb.Set(ctx, "key", "value", time.Second).Err()
 	if err != nil {
 		panic(err)
 	}
 
+	time.Sleep(time.Second * 2)
+
 	v, err := rdb.Get(ctx, "key").Result()
-	if err != nil {
+	if !errors.Is(err, redis.Nil) {
 		panic(err)
+	} else if errors.Is(err, redis.Nil) {
+		log.Println("not found")
+		return
 	}
 
 	log.Println("key", v)

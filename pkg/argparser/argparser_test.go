@@ -1,7 +1,7 @@
 package argparser
 
 import (
-	"reflect"
+	"redis/pkg/ds/mapx"
 	"testing"
 )
 
@@ -83,7 +83,7 @@ func TestParse(t *testing.T) {
 				}
 			}
 
-			if !reflect.DeepEqual(actual, test.expected) {
+			if !actual.IsEqual(mapx.NewMapFromSource(test.expected)) {
 				t.Errorf("expected: %v, got: %v", test.expected, actual)
 			}
 		})

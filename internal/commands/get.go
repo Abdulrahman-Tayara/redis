@@ -19,8 +19,8 @@ func (s *Server) HandleGet() server.CommandHandlerFunc {
 
 		key := args[0]
 
-		if v, err := hashTable.Get(key.(string)); err != nil {
-			_, _ = w.WriteAny(err)
+		if v, ok := hashTable.Get(key.(string)); !ok {
+			_, _ = w.WriteAny(nil)
 			return
 		} else {
 			_, _ = w.WriteAny(v)

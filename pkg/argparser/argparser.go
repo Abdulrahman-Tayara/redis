@@ -2,13 +2,9 @@ package argparser
 
 import (
 	"fmt"
+	"redis/pkg/ds/mapx"
 	"redis/pkg/utils"
-)
-
-const (
-	ArgTagName        = "arg"
-	RequiredTagProp   = "required"
-	PositionalTagProp = "positional"
+	"strings"
 )
 
 type ArgInfo struct {
@@ -16,16 +12,16 @@ type ArgInfo struct {
 	IsFlag bool
 }
 
-func Parse(args []any, schema []ArgInfo) (map[string]any, error) {
+func Parse(args []any, schema []ArgInfo) (mapx.IMap[string, any], error) {
 	argsMap := utils.SliceToMap(schema, func(v ArgInfo) string {
-		return v.Name
+		return strings.ToLower(v.Name)
 	})
 
 	result := make(map[string]any)
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		argStr := utils.ToString(arg)
+		argStr := strings.ToLower(utils.ToString(arg))
 		argInfo, ok := argsMap[argStr]
 		if !ok {
 			return nil, fmt.Errorf("unknown argument: %s", argStr)
@@ -44,7 +40,7 @@ func Parse(args []any, schema []ArgInfo) (map[string]any, error) {
 
 		// Check if the value is an argument
 		if valueStr := utils.ToString(value); valueStr != "" {
-			if _, ok := argsMap[valueStr]; ok {
+			if _, ok := argsMap[strings.ToLower(valueStr)]; ok {
 				return nil, fmt.Errorf("missing value for argument: %s", argStr)
 			}
 		}
@@ -61,5 +57,5 @@ func Parse(args []any, schema []ArgInfo) (map[string]any, error) {
 		}
 	}
 
-	return result, nil
+	return mapx.NewMapFromSource(result), nil
 }

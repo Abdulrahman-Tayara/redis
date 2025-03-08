@@ -5,4 +5,9 @@ type Configs struct {
 	ProtoVersion int      `mapstructure:"proto_version"`
 	Mode         string   `mapstructure:"mode"`
 	Modules      []string `mapstructure:"modules"`
+	Port         string   `mapstructure:"port"`
+}
+
+func (cfg *Configs) Address() string {
+	return ":" + cfg.Port
 }
