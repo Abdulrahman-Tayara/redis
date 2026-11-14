@@ -3,6 +3,7 @@ package utils
 import (
 	"reflect"
 	"strconv"
+	"testing"
 )
 
 func BoolPtr(b bool) *bool {
@@ -118,5 +119,19 @@ func MustParseInt(v any) int {
 		return i
 	default:
 		return 0
+	}
+}
+
+func AssertTest[T any](t *testing.T, name string, expected T, actual T, expectedErr string, actualErr error) {
+	if expectedErr != "" {
+		if actualErr == nil || actualErr.Error() != expectedErr {
+			t.Errorf("%s: expected error %v, got error %v and value %v", name, expectedErr, actualErr, actual)
+		}
+	} else {
+		if actualErr != nil {
+			t.Errorf("%s: expected no error, got error %v", name, actualErr)
+		} else if !reflect.DeepEqual(expected, actual) {
+			t.Errorf("%s: expected value %v, got value %v", name, expected, actual)
+		}
 	}
 }

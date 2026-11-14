@@ -20,6 +20,12 @@ func NewMapFromSource[K comparable, V any](source map[K]V) *Map[K, V] {
 	}
 }
 
+func NewMap[K comparable, V any]() *Map[K, V] {
+	return &Map[K, V]{
+		data: make(map[K]V),
+	}
+}
+
 func (m *Map[K, V]) Get(key K) (V, bool) {
 	v, ok := m.data[key]
 	return v, ok
